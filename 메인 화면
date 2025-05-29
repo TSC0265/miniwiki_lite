@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>남문초 자유게시판</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f2f2f2;
+    }
+    h1 {
+      color: #333;
+    }
+    input[type="text"], textarea {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+      margin-bottom: 15px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    button {
+      padding: 10px 15px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-right: 5px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .small {
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+    .post {
+      background: white;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.1);
+    }
+    .comment-section {
+      margin-top: 10px;
+      background: #f9f9f9;
+      padding: 10px;
+      border-radius: 5px;
+    }
+    .comment {
+      margin-top: 5px;
+      background: #fff;
+      padding: 8px;
+      border-radius: 5px;
+      border: 1px solid #ddd;
+    }
+    .comment .actions {
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>남문초 자유게시판</h1>
+
+  <div>
+    <input type="text" id="titleInput" placeholder="제목을 입력하세요">
+    <textarea id="contentInput" rows="4" placeholder="내용을 입력하세요"></textarea>
+    <button onclick="addPost()">글 작성</button>
+  </div>
+
+  <div id="postList"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js";
+    import { getDatabase, ref, push, onValue, remove, update } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-database.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-analytics.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAtfPeV-w16JGk-yZQGx1agsgdZQgJDU_4",
+      authDomain: "miniwiki0265.firebaseapp.com",
+      databaseURL: "https://miniwiki0265-default-rtdb.firebaseio.com",
+      projectId: "miniwiki0265",
+      storageBucket: "miniwiki0265.appspot.com",
+      messagingSenderId: "118700984871",
+      appId: "1:118700984871:web:67c5c7cbe5aea771899c02",
+      measurementId: "G-2NRBG9X7NK"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+    const db = getDatabase(app);
+    const postListDiv = document.getElementById('postList');
+
+    function renderPost(key, postData) {
+      const postDiv = document.createElement('div');
+      postDiv.className = 'post';
+      postDiv.dataset.key = key;
+
+      postDiv.innerHTML = `
+        <h3>${postData.title}</h3>
+        <p>${postData.content}</p>
+        <button class="small" onclick="editPostRealtime(this)">수정</button>
+        <button class="small" onclick="deletePostRealtime(this)">삭제</button>
+        <div class="comment-section">
+          <input type="text" placeholder="댓글 작성..." class="comment-input">
+          <button onclick="addCommentRealtime(this, '${key}')">댓글 올리기</button>
+          <div class="comment-list"></div>
+        </div>
+      `;
+
+      postListDiv.prepend(postDiv);
+      loadComments(key, postDiv.querySelector('.comment-list'));
+    }
+
+    function loadPosts() {
+      const postsRef = ref(db, 'posts/');
+      onValue(postsRef, snapshot => {
+        postListDiv.innerHTML = '';
+        snapshot.forEach(childSnapshot => {
+          const key = childSnapshot.key;
+          const data = childSnapshot.val();
+          renderPost(key, data);
+        });
+      });
+    }
+
+    window.addPost = function () {
+      const title = document.getElementById('titleInput').value;
+      const content = document.getElementById('contentInput').value;
+
+      if (!title || !content) {
+        alert("제목과 내용을 모두 입력해주세요.");
+        return;
+      }
+
+      const postsRef = ref(db, 'posts/');
+      push(postsRef, {
+        title,
+        content
+      });
+
+      document.getElementById('titleInput').value = '';
+      document.getElementById('contentInput').value = '';
+    }
+
+    window.deletePostRealtime = function (btn) {
+      if (confirm('이 게시글을 삭제하시겠습니까?')) {
+        const postDiv = btn.closest('.post');
+        const postKey = postDiv.dataset.key;
+        remove(ref(db, `posts/${postKey}`));
+        remove(ref(db, `comments/${postKey}`));
+      }
+    }
+
+    window.editPostRealtime = function (btn) {
+      const postDiv = btn.closest('.post');
+      const titleEl = postDiv.querySelector('h3');
+      const contentEl = postDiv.querySelector('p');
+      const postKey = postDiv.dataset.key;
+
+      const isEditing = titleEl.isContentEditable;
+
+      if (isEditing) {
+        titleEl.contentEditable = 'false';
+        contentEl.contentEditable = 'false';
+        update(ref(db, `posts/${postKey}`), {
+          title: titleEl.textContent,
+          content: contentEl.textContent
+        });
+        btn.textContent = '수정';
+      } else {
+        titleEl.contentEditable = 'true';
+        contentEl.contentEditable = 'true';
+        btn.textContent = '저장';
+      }
+    }
+
+    window.addCommentRealtime = function (btn, postKey) {
+      const commentInput = btn.previousElementSibling;
+      const commentText = commentInput.value.trim();
+      if (!commentText) {
+        alert("댓글을 입력해주세요.");
+        return;
+      }
+      const commentRef = ref(db, `comments/${postKey}`);
+      push(commentRef, {
+        text: commentText
+      });
+      commentInput.value = '';
+    }
+
+    function loadComments(postKey, commentListDiv) {
+      const commentRef = ref(db, `comments/${postKey}`);
+      onValue(commentRef, snapshot => {
+        commentListDiv.innerHTML = '';
+        snapshot.forEach(childSnapshot => {
+          const commentKey = childSnapshot.key;
+          const data = childSnapshot.val();
+
+          const commentDiv = document.createElement('div');
+          commentDiv.className = 'comment';
+          commentDiv.dataset.key = commentKey;
+
+          const span = document.createElement('span');
+          span.textContent = data.text;
+          span.setAttribute('contenteditable', 'false');
+
+          const actions = document.createElement('div');
+          actions.className = 'actions';
+
+          const editBtn = document.createElement('button');
+          editBtn.textContent = '수정';
+          editBtn.onclick = () => {
+            const isEditing = span.getAttribute('contenteditable') === 'true';
+            if (isEditing) {
+              span.setAttribute('contenteditable', 'false');
+              editBtn.textContent = '수정';
+              update(ref(db, `comments/${postKey}/${commentKey}`), {
+                text: span.textContent
+              });
+            } else {
+              span.setAttribute('contenteditable', 'true');
+              editBtn.textContent = '저장';
+            }
+          };
+
+          const deleteBtn = document.createElement('button');
+          deleteBtn.textContent = '삭제';
+          deleteBtn.onclick = () => {
+            if (confirm('이 댓글을 삭제하시겠습니까?')) {
+              remove(ref(db, `comments/${postKey}/${commentKey}`));
+            }
+          };
+
+          actions.appendChild(editBtn);
+          actions.appendChild(deleteBtn);
+          commentDiv.appendChild(span);
+          commentDiv.appendChild(actions);
+          commentListDiv.appendChild(commentDiv);
+        });
+      });
+    }
+
+    loadPosts();
+  </script>
+</body>
+</html>
